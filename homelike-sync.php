@@ -717,13 +717,13 @@ function hlsync_script()
                 initial sync
             ==================== -->
 
-            <input type="submit" name="hl-intial-sync" class="button button-primary" value="Initial Sync">
+            <!-- <input type="submit" name="hl-intial-sync" class="button button-primary" value="Initial Sync"> -->
 
             <!-- ====================
                 available dates sync
             ==================== -->
 
-            <input type="submit" name="hl-available-dates-sync" class="button button-primary" value="Sync Available Dates">
+            <!-- <input type="submit" name="hl-available-dates-sync" class="button button-primary" value="Sync Available Dates"> -->
 
             <!-- ====================
                 partial sync
