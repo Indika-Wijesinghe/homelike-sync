@@ -1,5 +1,5 @@
 <?php
-set_time_limit(0);
+
 
 /**
  * Plugin Name: Homelike Sync
@@ -17,14 +17,14 @@ if (!defined('ABSPATH')) {
 }
 
 
-function shsync_admin_menu()
+function hlsync_admin_menu()
 {
-    add_menu_page('Spotahome Sync', 'Spotahome Sync', 'manage_options', 'shsync-menu', 'shsync_script', '', 210);
+    add_menu_page('Homelike Sync', 'Homelike Sync', 'manage_options', 'hlsync-menu', 'hlsync_script', '', 210);
 }
 
-add_action('admin_menu', 'shsync_admin_menu');
+add_action('admin_menu', 'hlsync_admin_menu');
 
-function create_sh_rx_post_table($table_name)
+function create_hl_rx_post_table($table_name)
 {
     global $wpdb;
 
@@ -32,7 +32,7 @@ function create_sh_rx_post_table($table_name)
 
     $sql = "CREATE TABLE $table_name (
             id mediumint(9) NOT NULL AUTO_INCREMENT,
-            sh_id int(16) NOT NULL,
+            ex_id varchar(128) NOT NULL,
             rx_id int(16) NOT NULL,
             ex_url varchar(512),
             clicks varchar(256),
@@ -43,7 +43,7 @@ function create_sh_rx_post_table($table_name)
     dbDelta($sql);
 }
 
-function drop_sh_rx_post_table($table_name)
+function drop_hl_rx_post_table($table_name)
 {
     global $wpdb;
     $query = $wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($table_name));
@@ -53,57 +53,58 @@ function drop_sh_rx_post_table($table_name)
     }
 }
 
-function get_sh_listings_xml()
+function get_hl_listings_xml()
 {
 
-    $url = plugin_dir_path(__FILE__) . "079cebbf72a8e9372a5d4e39bb53907080476f68.xml";
+    $url = plugin_dir_path(__FILE__) . "homelike.xml";
     $xml = simplexml_load_file($url);
-    return $xml;
+    $property_array = $xml[0][0][0]->anbieter->property;
+    return $property_array;
 }
 
-function insert_into_shsync_custom_table($table_name, $sh_id, $rx_id, $ex_url)
+function insert_into_hlsync_custom_table($table_name, $ex_id, $rx_id, $ex_url)
 {
     global $wpdb;
     $clicks = array(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 
     $clicks = json_encode($clicks);
 
-    $wpdb->insert($table_name, array('sh_id' => $sh_id, 'rx_id' => $rx_id, 'ex_url' => $ex_url, 'clicks' => $clicks));
+    $wpdb->insert($table_name, array('ex_id' => $ex_id, 'rx_id' => $rx_id, 'ex_url' => $ex_url, 'clicks' => $clicks));
 }
 
-function sync_reservation_dates_sh_listings($shlisting, $table_name)
+function sync_reservation_dates_hl_listings($listing, $table_name)
 {
     global $wpdb;
-    $sh_id = intval($shlisting->Id);
+    $ex_id = $listing->administration_technical->openimmo_obid;
 
     $query = $wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($table_name));
 
 
     if ($wpdb->get_var($query) == $table_name) {
 
-        $rx_id = $wpdb->get_var($wpdb->prepare("SELECT rx_id FROM $table_name WHERE sh_id=%d", $sh_id));
+        $rx_id = $wpdb->get_var($wpdb->prepare("SELECT rx_id FROM $table_name WHERE ex_id=%d", $ex_id));
 
-        $shsync_available_date = new DateTime($shlisting->Availability);
-        $shsync_available_date = $shsync_available_date->getTimestamp();
-        $shsync_today_date = new DateTime('today');
-        $shsync_today_date = $shsync_today_date->getTimestamp();
+        $sync_available_date = new DateTime($listing->administration_managment->from_date);
+        $sync_available_date = $sync_available_date->getTimestamp();
+        $sync_today_date = new DateTime('today');
+        $sync_today_date = $sync_today_date->getTimestamp();
 
 
-        if ($shsync_available_date > $shsync_today_date) {
+        if ($sync_available_date > $sync_today_date) {
 
-            $shsync_1_day_in_seconds = 60 * 60 * 24;
-            $shsync_reserved_dates_array = [];
-            for ($i = $shsync_today_date; $i < $shsync_available_date; $i += $shsync_1_day_in_seconds) {
-                $shsync_reserved_dates_array[$i] = 'OR';
+            $sync_1_day_in_seconds = 60 * 60 * 24;
+            $sync_reserved_dates_array = [];
+            for ($i = $sync_today_date; $i < $sync_available_date; $i += $sync_1_day_in_seconds) {
+                $sync_reserved_dates_array[$i] = 'OR';
             }
-            update_post_meta($rx_id, 'reservation_dates', $shsync_reserved_dates_array);
+            update_post_meta($rx_id, 'reservation_dates', $sync_reserved_dates_array);
         }
     } else {
         echo "no data to sync";
     }
 }
 
-function remove_all_sh_data($table_name)
+function remove_all_hl_data($table_name)
 {
     global $wpdb;
 
@@ -130,40 +131,61 @@ function remove_all_sh_data($table_name)
         }
     }
 }
+function hl_custom_create_img_array($media_attachment)
+{
+    // echo ("<pre>");
+    // print('this is media attachment');
+    // print_r($media_attachment);
+    // echo ("</pre>");
 
-function sh_add_images_of_single_listing($shsync_post_id, $images_array)
+    $img_array = [];
+    foreach ($media_attachment->attachment as $attachment) {
+
+        if (strval($attachment->attributes()->group == 'image')) {
+            $img_url = strval($attachment->data->path);
+            array_push($img_array, $img_url);
+        }
+    }
+
+    return $img_array;
+}
+
+
+
+
+
+function hl_add_images_of_single_listing($sync_post_id, $images_array)
 {
 
-    $sh_image_count = 0;
+    $image_count = 0;
 
     foreach ($images_array as $single_image) {
 
-        $sh_img_id = media_sideload_image($single_image, $shsync_post_id, null, 'id');
+        $img_id = media_sideload_image($single_image, $sync_post_id, null, 'id');
 
 
-        add_post_meta($shsync_post_id, 'homey_listing_images', $sh_img_id);
+        add_post_meta($sync_post_id, 'homey_listing_images', $img_id);
 
-        $sh_image_count++;
-        if ($sh_image_count == 1) {
-            update_post_meta($shsync_post_id, '_thumbnail_id', $sh_img_id);
+        $image_count++;
+        if ($image_count == 1) {
+            update_post_meta($sync_post_id, '_thumbnail_id', $img_id);
         }
     }
 }
-function sh_remove_last_listing()
+function hl_remove_last_listing($table_name)
 {
     global $wpdb;
-    $table_name = $wpdb->prefix . "shsync_custom";
 
-    $sh_last_entry = $wpdb->get_results("SELECT * FROM $table_name ORDER BY id DESC limit 1");
-    $last_entry_id = $sh_last_entry[0]->id;
-    $last_entry_rx_id = $sh_last_entry[0]->rx_id;
-    $sh_start_id = $sh_last_entry[0]->sh_id;
-
+    $last_entry = $wpdb->get_results("SELECT * FROM $table_name ORDER BY id DESC limit 1");
+    $last_entry_id = $last_entry[0]->id;
+    $last_entry_rx_id = $last_entry[0]->rx_id;
+    $start_id = $last_entry[0]->ex_id;
 
 
-    $sh_listing_img_array = get_post_meta($last_entry_rx_id, 'homey_listing_images');
 
-    foreach ($sh_listing_img_array as $attachment_id) {
+    $listing_img_array = get_post_meta($last_entry_rx_id, 'homey_listing_images');
+
+    foreach ($listing_img_array as $attachment_id) {
 
         wp_delete_attachment($attachment_id, true);
     }
@@ -173,150 +195,191 @@ function sh_remove_last_listing()
 
     $wpdb->query("ALTER TABLE $table_name AUTO_INCREMENT =$last_entry_id");
 
-    return $sh_start_id;
+    return $start_id;
 }
-function sh_camelcase_to_sentence($word)
+function hl_camelcase_to_sentence($word)
 {
     $arr = preg_split('/(?=[A-Z])/', $word);
     $str = strtolower(implode(' ', $arr));
     return $str;
 }
-function sh_add_single_listing($shlisting)
+function hl_get_url($attachments)
+{
+
+    foreach ($attachments as $attachment) {
+        if ($attachment->attributes()->group == "Remote") {
+            return $attachment->data->path;
+        }
+    }
+}
+
+function hl_add_single_listing($listing, $table_name)
 {
     //create custom table in the database
 
     global $wpdb;
-    $table_name = $wpdb->prefix . "shsync_custom";
 
-    $sh_id = intval($shlisting->Id);
-    $sh_zip = $shlisting->Postcode;
-    $sh_ext_url = strval($shlisting->Url_en);
-
-    $sh_bills = "Bills: \n \n" .
-        "Wifi: " . sh_camelcase_to_sentence($shlisting->bills->wifi) . "\n" .
-        "Water: " . sh_camelcase_to_sentence($shlisting->bills->water) . "\n" .
-        "Electricity: " . sh_camelcase_to_sentence($shlisting->bills->electricity) . "\n" .
-        "Gas: " . sh_camelcase_to_sentence($shlisting->bills->gas) . "\n";
+    $ex_id = strval($listing->administration_technical->openimmo_obid);
+    $ex_zip = strval($listing->geo->zip);
+    $ext_url = strval(hl_get_url($listing->media_attachment->attachment));
 
 
-    $sh_description = $shlisting->Description_en . "\n \n" . $shlisting->rules_en->landlord_policies_en . "\n \n" . $sh_bills;
+    $description = strval($listing->free_texts->location) . "\n \n" . strval($listing->free_texts->environment_description) . "\n \n" .
+        strval($listing->free_texts->object_description) . "\n \n" .
+        strval($listing->free_texts->other_details) . "\n \n" .
+        'Cancellation Policy: ' . strval($listing->free_texts->cancellation_policy);
 
     // wp_die($sh_description);
 
     $my_post = array(
-        'post_author'   => 104,
-        'post_title' => $shlisting->Title_en,
+        'post_author'   => 106,
+        'post_title' => strval($listing->free_texts->object_title),
         'post_status'   => 'publish',
         'post_type' => 'listing',
-        'post_content' => $sh_description,
+        'post_content' => $description,
 
     );
 
-    $sh_post_id = wp_insert_post($my_post);
+    $post_id = wp_insert_post($my_post);
 
 
 
-    // insert into pasync table
-    insert_into_shsync_custom_table($table_name, $sh_id, $sh_post_id, $sh_ext_url);
+    // insert into custom table
+    insert_into_hlsync_custom_table($table_name, $ex_id, $post_id, $ext_url);
 
 
-    //set post meta=======================================================
+    // ====================
+    //  set post meta
+    // ====================
 
 
     //create new post meta to identify which external source and its id
-    if ($sh_ext_url != '') {
-        update_post_meta($sh_post_id, 'externel_sit_url', $sh_ext_url);
+    if ($ext_url != '') {
+        update_post_meta($post_id, 'externel_sit_url', $ext_url);
     }
 
     //set homey affiliate booking link
-    update_post_meta($sh_post_id, 'homey_affiliate_booking_link', $sh_ext_url);
+    update_post_meta($post_id, 'homey_affiliate_booking_link', $ext_url);
 
     //create new post meta to identify which external source and its id
 
-    update_post_meta($sh_post_id, 'externel_site', 'spotahome.com-' . $shlisting->Id);
+    update_post_meta($post_id, 'externel_site', 'thehomelike.com-' . $ex_id);
 
     //total ratings
-    update_post_meta($sh_post_id, 'listing_total_rating', 0);
+    update_post_meta($post_id, 'listing_total_rating', 0);
 
     //guests
-    // update_post_meta($sh_post_id, 'homey_total_guests_plus_additional_guests', $shlisting->occupants);
+    // update_post_meta($post_id, 'homey_total_guests_plus_additional_guests', $listing->occupants);
 
     //booking type
-    update_post_meta($sh_post_id, 'homey_booking_type', 'per_month');
+    update_post_meta($post_id, 'homey_booking_type', 'per_month');
 
 
     //listing type
-    $sh_listing_type = $shlisting->Type;
+    $listing_type = strval($listing->object_category->object_type->acommodation->attributes()->accomodation_type);
 
-    if (strcasecmp($sh_listing_type, 'room_shared') == 0) {
+    if (strcasecmp($listing_type, 'APARTMENT') == 0) {
 
-        $sh_listing_type = 'shared-room';
+        $listing_type = 'apartment';
+        $room_type = 'entire-place';
+        wp_set_object_terms($post_id, $listing_type, 'listing_type');
+        wp_set_object_terms($post_id, $room_type, 'room_type');
     }
-    wp_set_object_terms($sh_post_id, $sh_listing_type, 'listing_type');
+
+    if (strcasecmp($listing_type, 'PRIVATE_ROOM') == 0) {
+
+        $listing_type = 'apartment';
+        $room_type = 'private-room';
+        wp_set_object_terms($post_id, $listing_type, 'listing_type');
+        wp_set_object_terms($post_id, $room_type, 'room_type');
+    }
 
     //instance booking
-    update_post_meta($sh_post_id, 'homey_instant_booking', 0);
+    update_post_meta($post_id, 'homey_instant_booking', 0);
 
     //bedrooms
-    $sh_no_bedrooms = intval($shlisting->Number_of_bedrooms);
-    update_post_meta($sh_post_id, 'homey_listing_bedrooms', $sh_no_bedrooms);
+    $no_bedrooms = intval($listing->areas->number_of_bedrooms);
+    update_post_meta($post_id, 'homey_listing_bedrooms', $no_bedrooms);
 
     //rooms
-    update_post_meta($sh_post_id, 'homey_listing_rooms', '');
+    $no_rooms = intval($listing->areas->number_of_rooms);
+    update_post_meta($post_id, 'homey_listing_rooms', $no_rooms);
 
     //post prefix
-    update_post_meta($sh_post_id, 'homey_price_postfix', 'month');
+
+    update_post_meta($post_id, 'homey_price_postfix', 'month');
 
     //additional guest price
-    update_post_meta($sh_post_id, 'homey_additional_guests_price', '');
+    update_post_meta($post_id, 'homey_additional_guests_price', '');
 
 
     //app suite
-    update_post_meta($sh_post_id, 'homey_aptSuit', '');
+    update_post_meta($post_id, 'homey_aptSuit', '');
 
     //guests
-    update_post_meta($sh_post_id, 'homey_guests', '');
+    update_post_meta($post_id, 'homey_guests', intval($listing->areas->max_occupancy));
 
     //beds
-    update_post_meta($sh_post_id, 'homey_beds', '');
+    update_post_meta($post_id, 'homey_beds', '');
 
     //bath
-    update_post_meta($sh_post_id, 'homey_baths', intval($shlisting->Number_of_bathrooms));
+    update_post_meta($post_id, 'homey_baths', intval($listing->areas->number_of_batrooms));
 
     //monthly price aka night price
-    update_post_meta($sh_post_id, 'homey_night_price', (float)$shlisting->Amount);
+    update_post_meta($post_id, 'homey_night_price', (float)$listing->prices->warm_rent);
 
     //weekdays
-    update_post_meta($sh_post_id, 'homey_weekends_days', 'sat_sun');
+    update_post_meta($post_id, 'homey_weekends_days', 'sat_sun');
 
     //additional guests
-    update_post_meta($sh_post_id, 'homey_allow_additional_guests', '');
+    update_post_meta($post_id, 'homey_allow_additional_guests', '');
 
     //security deposit
-    update_post_meta($sh_post_id, 'homey_security_deposit', (float)$shlisting->rent_conditions->deposit);
+    update_post_meta($post_id, 'homey_security_deposit', (float)$listing->prices->bail);
 
     //listing size
-    if (intval($shlisting->Place_size) != 0) {
+    if (intval($listing->areas->total_area) != 0) {
 
-        update_post_meta($sh_post_id, 'homey_listing_size', intval($shlisting->Place_size));
+        update_post_meta($post_id, 'homey_listing_size', intval($listing->areas->total_area));
     }
 
     //listing size unit
-    update_post_meta($sh_post_id, 'homey_listing_size_unit', 'sqm');
+    update_post_meta($post_id, 'homey_listing_size_unit', 'sqm');
 
     //listing address
-    update_post_meta($sh_post_id, 'homey_listing_address', $shlisting->Address . ' ' . $shlisting->Postcode);
 
-    //cancellation policy
-    //         update_post_meta($sh_post_id, 'homey_cancellation_policy', 'check https://www.parisattitude.com/tenant/cancellation-insurance.aspx for more cancellation policy
-    //   ');
+    $floor = intval($listing->geo->floor);
 
-    $sh_min_stay = floor((intval($shlisting->Minimum_stay)) / 30);
+
+
+    if ($floor == 0) {
+
+        $address = strval($listing->geo->zip) . ' ' . strval($listing->geo->street) . ' ' . strval($listing->geo->city) . ' ' . strval("France");
+    } else {
+
+        $address = 'Floor ' . strval($listing->geo->floor) . ', ' . strval($listing->geo->zip) . ' ' . strval($listing->geo->street) . ' ' . strval($listing->geo->city) . ' ' . strval("France");
+    }
+
+
+    //this set country to france, this is hardcoded as this only sync paris france listings
+    wp_set_object_terms($post_id, 'france', 'listing_country', true);
+
+    //this set city to paris, this is hardcoded as this only sync paris france listings
+    wp_set_object_terms($post_id, 'paris', 'listing_city', true);
+
+
+    update_post_meta($post_id, 'homey_listing_address', $address);
+
+    // cancellation policy
+
+    update_post_meta($post_id, 'homey_cancellation_policy', strval($listing->free_texts->cancellation_policy));
+
+    // $sh_min_stay = floor((intval($listing->Minimum_stay)) / 30);
     //min book months
-    update_post_meta($sh_post_id, 'homey_min_book_months', $sh_min_stay);
+    // update_post_meta($post_id, 'homey_min_book_months', $sh_min_stay);
 
     //max book months
-    update_post_meta($sh_post_id, 'homey_max_book_months', '');
+    // update_post_meta($post_id, 'homey_max_book_months', '');
 
 
     //facilities
@@ -326,70 +389,90 @@ function sh_add_single_listing($shlisting)
     // update_post_meta($im_post_id, 'homey_children', '');
 
 
-    update_post_meta($sh_post_id, 'homey_accomodation', '');
+
+    update_post_meta($post_id, 'homey_accomodation', '');
 
 
     //Amenities
     // this can be inserted as an array  
     // wp_set_object_terms( $listing_id, $amenities_array, 'listing_amenity' );
 
-    if ($shlisting->place_features->balcony_or_terrace == true) {
+    $pets_allowed = filter_var($listing->administration_managment->house_pets, FILTER_VALIDATE_BOOLEAN);
 
-        wp_set_object_terms($sh_post_id, 'balcony-terrace', 'listing_amenity', true);
+    $smoking_allowed = !filter_var($listing->administration_managment->non_smoker, FILTER_VALIDATE_BOOLEAN);
+
+
+    if ($pets_allowed != false) {
+        wp_set_object_terms($post_id, 'pets-allowed', 'listing_amenity', $pets_allowed);
     }
-    // if ($palisting->parking == 1) {
-    //     wp_set_object_terms($sh_post_id, 'parking', 'listing_amenity', true);
+    if ($smoking_allowed != false) {
+        wp_set_object_terms($post_id, 'smoking-allowed', 'listing_amenity', $smoking_allowed);
+    }
+
+    if (strval($listing->equipment->type_of_parking_space->attributes()->free_space) == 'true') {
+
+        wp_set_object_terms($post_id, 'parking', 'listing_amenity', true);
+    }
+
+    // if ($listing->place_features->balcony_or_terrace == true) {
+
+    //     wp_set_object_terms($post_id, 'balcony-terrace', 'listing_amenity', true);
     // }
-    if ($shlisting->place_features->air_conditioner != 'notAvailable') {
-        wp_set_object_terms($sh_post_id, 'air-conditioning', 'listing_amenity', true);
+
+    if (strval($listing->equipment->air_conditioned == 'true')) {
+        wp_set_object_terms($post_id, 'air-conditioning', 'listing_amenity', true);
     }
-    // if ($shlisting->closet == 1) {
-    //     wp_set_object_terms($sh_post_id, 'closet', 'listing_amenity', true);
+
+    // if ($listing->closet == 1) {
+    //     wp_set_object_terms($post_id, 'closet', 'listing_amenity', true);
     // }
-    // if ($shlisting->desk == 1) {
-    //     wp_set_object_terms($sh_post_id, 'desk', 'listing_amenity', true);
+    // if ($listing->desk == 1) {
+    //     wp_set_object_terms($post_id, 'desk', 'listing_amenity', true);
     // }
-    if ($shlisting->place_features->dishwasher == true) {
-        wp_set_object_terms($sh_post_id, 'dishwasher', 'listing_amenity', true);
+    if (strval($listing->equipment->user_defined_field->dishwasher == 'true')) {
+        wp_set_object_terms($post_id, 'dishwasher', 'listing_amenity', true);
     }
-    // if ($shlisting->dryer == 1) {
-    //     wp_set_object_terms($sh_post_id, 'dryer', 'listing_amenity', true);
+    if (strval($listing->equipment->user_defined_field->dryer == 'true')) {
+        wp_set_object_terms($post_id, 'dryer', 'listing_amenity', true);
+    }
+    if (strval($listing->equipment->user_defined_field->tv == 'true')) {
+        wp_set_object_terms($post_id, 'tv', 'listing_amenity', true);
+    }
+
+    if (strval($listing->equipment->user_defined_field->washing_machine == 'true')) {
+        wp_set_object_terms($post_id, 'washing-machine', 'listing_amenity', true);
+    }
+
+    if (strval($listing->equipment->user_defined_field->washing_machine == 'true')) {
+        wp_set_object_terms($post_id, 'microwave', 'listing_amenity', true);
+    }
+
+
+    // if ($listing->place_features->wifi == 'included') {
+    //     wp_set_object_terms($post_id, 'wi-fi', 'listing_amenity', true);
     // }
-    // if ($shlisting->tv == 1) {
-    //     wp_set_object_terms($sh_post_id, 'tv', 'listing_amenity', true);
+
+    if (strval($listing->equipment->kitchen->attributes()->oven == 'true')) {
+
+        wp_set_object_terms($post_id, 'oven', 'listing_amenity', true);
+    }
+    // if ($listing->place_features->heating == 'included') {
+    //     wp_set_object_terms($post_id, 'heating', 'listing_amenity', true);
     // }
-    if ($shlisting->place_features->washing_machine != 'notAvailable') {
-        wp_set_object_terms($sh_post_id, 'washing-machine', 'listing_amenity', true);
-    }
 
-    if ($shlisting->place_features->wifi == 'included') {
-        wp_set_object_terms($sh_post_id, 'wi-fi', 'listing_amenity', true);
-    }
-
-    if ($shlisting->place_features->oven != false) {
-        wp_set_object_terms($sh_post_id, 'oven', 'listing_amenity', true);
-    }
-    if ($shlisting->place_features->heating == 'included') {
-        wp_set_object_terms($sh_post_id, 'heating', 'listing_amenity', true);
-    }
-    if ($shlisting->place_features->bed_linen == 'providedAndIncludedInRent') {
-        wp_set_object_terms($sh_post_id, 'linens', 'listing_amenity', true);
-    }
-
-    if ($shlisting->place_features->pets_allowed != false) {
-        wp_set_object_terms($sh_post_id, 'pets-allowed', 'listing_amenity', true);
-    }
-
-    if ($shlisting->place_features->equipped_kitchen == true) {
-        wp_set_object_terms($sh_post_id, 'equipped-kitchen', 'listing_amenity', true);
-    }
-
-    if ($shlisting->place_features->furnished == true) {
-        wp_set_object_terms($sh_post_id, 'furnished', 'listing_amenity', true);
-    }
+    // if ($listing->place_features->bed_linen == 'providedAndIncludedInRent') {
+    //     wp_set_object_terms($post_id, 'linens', 'listing_amenity', true);
+    // }
 
 
 
+    if (strval($listing->equipment->kitchen->attributes()->ebk == 'true')) {
+        wp_set_object_terms($post_id, 'equipped-kitchen', 'listing_amenity', true);
+    }
+
+    if (strval($listing->equipment->furnished->attributes()->furn == 'full')) {
+        wp_set_object_terms($post_id, 'furnished', 'listing_amenity', true);
+    }
 
     // services
     $im_pa_fees_array = [];
@@ -410,114 +493,126 @@ function sh_add_single_listing($shlisting)
     //     )
     // );
 
-    update_post_meta($sh_post_id, 'homey_extra_prices', $im_pa_fees_array);
+    update_post_meta($post_id, 'homey_extra_prices', $im_pa_fees_array);
 
 
     //extra pices
-    update_post_meta($sh_post_id, 'homey_services', '');
+    update_post_meta($post_id, 'homey_services', '');
 
     //additional rules
-    update_post_meta($sh_post_id, 'homey_additional_rules', 'Extra fees to be paid to the host includes <br><b>Deposit: $' . (float)$shlisting->Deposit . '</br> Admin Fees: $' . (float)$shlisting->Admin_Fee . '</b>');
+    // update_post_meta($post_id, 'homey_additional_rules', 'Extra fees to be paid to the host includes <br><b>Deposit: $' . (float)$listing->Deposit . '</br> Admin Fees: $' . (float)$listing->Admin_Fee . '</b>');
 
     //closed dates
-    update_post_meta($sh_post_id, 'homey_mon_fri_closed', 0);
+    update_post_meta($post_id, 'homey_mon_fri_closed', 0);
 
-    update_post_meta($sh_post_id, 'homey_sat_closed', 0);
+    update_post_meta($post_id, 'homey_sat_closed', 0);
 
-    update_post_meta($sh_post_id, 'homey_sun_closed', 0);
+    update_post_meta($post_id, 'homey_sun_closed', 0);
 
 
     //zip
-    update_post_meta($sh_post_id, 'homey_zip', intval($shlisting->Postcode));
+    update_post_meta($post_id, 'homey_zip', $ex_zip);
 
     // vidoe url
-    update_post_meta($sh_post_id, 'homey_video_url', '');
+    update_post_meta($post_id, 'homey_video_url', '');
 
     // homey url
-    update_post_meta($sh_post_id, 'homey_featured', 0);
+    update_post_meta($post_id, 'homey_featured', 0);
+
+    $latitude = (float)$listing->geo->geocoordinates->attributes()->latitude;
+    $longitude = (float)$listing->geo->geocoordinates->attributes()->longitude;
 
     // geolocation
-    update_post_meta($sh_post_id, 'homey_geolocation_lat', (float)$shlisting->Latitude);
+    update_post_meta($post_id, 'homey_geolocation_lat', $latitude);
 
-    update_post_meta($sh_post_id, 'homey_geolocation_long', (float)$shlisting->Longitude);
+    update_post_meta($post_id, 'homey_geolocation_long', $longitude);
 
-    update_post_meta($sh_post_id, 'homey_listing_location',  (float)$shlisting->Latitude . ',' . (float)$shlisting->Longitude);
+    update_post_meta($post_id, 'homey_listing_location',   $latitude  . ',' . $longitude);
 
     // geolocation to wp_homey_map
-    homey_insert_lat_long((float)$shlisting->Latitude, (float)$shlisting->Longitude, $sh_post_id);
-
+    homey_insert_lat_long($latitude,  $longitude, $post_id);
 
 
     // map related
-    update_post_meta($sh_post_id, 'homey_listing_map', 1);
+    update_post_meta($post_id, 'homey_listing_map', 1);
 
-    update_post_meta($sh_post_id, 'homey_show_map', 1);
+    update_post_meta($post_id, 'homey_show_map', 1);
 
     // additinal guests
-    update_post_meta($sh_post_id, 'homey_num_additional_guests', '');
+    update_post_meta($post_id, 'homey_num_additional_guests', '');
 
 
     // reservation dates
-    $sh_available_date = new DateTime($shlisting->Availability);
-    $sh_available_date = $sh_available_date->getTimestamp();
-    $sh_today_date = new DateTime('today');
-    $sh_today_date = $sh_today_date->getTimestamp();
+    $available_date = new DateTime(strval($listing->administration_managment->from_date));
+    $available_date = $available_date->getTimestamp();
+    $today_date = new DateTime('today');
+    $today_date = $today_date->getTimestamp();
 
 
-    $sh_1_day_in_seconds = 60 * 60 * 24;
+    $one_day_in_seconds = 60 * 60 * 24;
 
-    $sh_reserved_dates_array = [];
+    $reserved_dates_array = [];
 
-    for ($i = $sh_today_date; $i < $sh_available_date; $i += $sh_1_day_in_seconds) {
-        $sh_reserved_dates_array[$i] = 'OR';
+    for ($i = $today_date; $i < $available_date; $i += $one_day_in_seconds) {
+        $reserved_dates_array[$i] = 'OR';
     }
 
-    update_post_meta($sh_post_id, 'reservation_dates', $sh_reserved_dates_array);
+    update_post_meta($post_id, 'reservation_dates', $reserved_dates_array);
 
     // add images
-    $sh_images_array = explode(",", $shlisting->Photos);
-    sh_add_images_of_single_listing($sh_post_id, $sh_images_array);
+    // $sh_images_array = explode(",", $listing->Photos);
+
+    $img_array = hl_custom_create_img_array($listing->media_attachment);
+    hl_add_images_of_single_listing($post_id, $img_array);
 }
 
 
-function sh_start_sync_from_middle($start_at)
+function hl_start_sync_from_middle($start_at)
 {
 
-    $decoded = get_sh_listings_xml();
+    $decoded = get_hl_listings_xml();
     $start_processing = 0;
 
-    foreach ($decoded as $shlisting) {
+    foreach ($decoded as $listing) {
 
-        if ($start_at == $shlisting->Id) {
+        $listing_country = $listing->geo->country->attributes()->iso_country;
+        if ($listing_country != "FRA") {
+            continue;
+        }
+
+        if ($start_at == $listing->administration_technical->openimmo_obid) {
             $start_processing = 1;
         }
-        if ($start_processing == 1) {
-            sh_add_single_listing($shlisting);
+
+        if ($start_processing == 1 and $listing_country == "FRA") {
+            global $wpdb;
+            $table_name = $wpdb->prefix . "hlsync_custom";
+            hl_add_single_listing($listing, $table_name);
         }
     }
 }
 
-function get_sh_listing_details($sh_id)
+function get_hl_listing_details($ex_id)
 {
-    $decoded = get_sh_listings_xml();
+    $decoded = get_hl_listings_xml();
 
-    foreach ($decoded as $palisting) {
-        if ($sh_id == $palisting->Id) {
-            return $palisting;
+    foreach ($decoded as $listing) {
+        if ($ex_id == $listing->$listing->administration_technical->openimmo_obid) {
+            return $listing;
         }
     }
 }
-function get_sh_id($rx_id)
+function get_hl_ex_id($rx_id)
 {
 
 
     if ($rx_id != '') {
         global $wpdb;
-        $table_name = $wpdb->prefix . "shsync_custom";
-        $sh_id = $wpdb->get_var($wpdb->prepare("SELECT sh_id FROM $table_name WHERE rx_id=%d", $rx_id));
+        $table_name = $wpdb->prefix . "hlsync_custom";
+        $ex_id = $wpdb->get_var($wpdb->prepare("SELECT ex_id FROM $table_name WHERE rx_id=%d", $rx_id));
 
-        if (is_numeric($sh_id) && $sh_id > 0) {
-            return $sh_id;
+        if ($ex_id) {
+            return $ex_id;
         } else {
             return "Not Found";
         }
@@ -526,37 +621,13 @@ function get_sh_id($rx_id)
     }
 }
 
-function sh_change_meta_of_listings($table_name, $key, $value)
-{
-    global $wpdb;
-    $listings = $wpdb->get_results("SELECT * FROM $table_name");
-    foreach ($listings as $listing) {
-        $post_id = $listing->rx_id;
-        update_post_meta($post_id, $key, $value);
-    }
-}
-function sh_change_additional_rules_of_listings($table_name)
-{
-    global $wpdb;
-    $listings = $wpdb->get_results("SELECT * FROM $table_name");
-    foreach ($listings as $listing) {
-        $post_id = $listing->rx_id;
-        $sh_id = $listing->sh_id;
 
-        $all_sh_listings = get_sh_listings_xml();
 
-        foreach ($all_sh_listings as $all_sh_listing) {
-            if ($all_sh_listing->id == $sh_id) {
-                update_post_meta($post_id, 'homey_additional_rules', 'Extra fees to be paid to the host includes <br><b>Deposit: $' . $all_sh_listing->rent_conditions->deposit . '</br> Agency Fees: $' . $all_sh_listing->rent_conditions->agency_fees . '<br>Monthly Utilities: $' . $all_sh_listing->rent_conditions->monthly_utilities . '<br>Important:Extra Fees are subject to change according to the booking duration' . '</b>');
-            }
-        }
-    }
-}
-function shsync_script()
+function hlsync_script()
 
 {
     global $wpdb;
-    $table_name = $wpdb->prefix . "shsync_custom";
+    $table_name = $wpdb->prefix . "hlsync_custom";
     // if (array_key_exists('change-extra-fee', $_POST)) {
 
     //     sh_change_additional_rules_of_listings($table_name);
@@ -568,49 +639,51 @@ function shsync_script()
     // }
 
     // get pa id of a listing
-    $search_sh_id = '';
-    $sh_listing_details_show = '';
-    if (array_key_exists('get-sh-id', $_POST)) {
+    $search_ex_id = '';
+    $hl_listing_details_show = '';
+    if (array_key_exists('get-hl-id', $_POST)) {
 
-        $get_rx_id = $_POST['sh-id'];
-        $search_sh_id = get_sh_id($get_rx_id);
-        $sh_listing_details_show = get_pa_listing_details($search_sh_id);
+        $get_rx_id = $_POST['hl-id'];
+        $search_ex_id = get_hl_ex_id($get_rx_id);
+        $hl_listing_details_show = get_hl_listing_details($search_ex_id);
     }
     // do the partial sync
-    if (array_key_exists('sh-partial-sync', $_POST)) {
+    if (array_key_exists('hl-partial-sync', $_POST)) {
 
-        $sh_last_listing = sh_remove_last_listing();
-        sh_start_sync_from_middle($sh_last_listing);
+        $table_name = $wpdb->prefix . "hlsync_custom";
+        $hl_last_listing = hl_remove_last_listing($table_name);
+        hl_start_sync_from_middle($hl_last_listing);
     }
 
     // to sync the available dates only
-    if (array_key_exists('sh-available-dates-sync', $_POST)) {
+    if (array_key_exists('hl-available-dates-sync', $_POST)) {
         global $wpdb;
-        $decoded = get_sh_listings_xml();
-        foreach ($decoded as $shlisting) {
+        $decoded = get_hl_listings_xml();
+        foreach ($decoded as $listing) {
 
-            sync_reservation_dates_sh_listings($shlisting, $table_name);
+            sync_reservation_dates_hl_listings($listing, $table_name);
         }
     }
 
     // add listings initially
-    if (array_key_exists('sh-intial-sync', $_POST)) {
+    if (array_key_exists('hl-intial-sync', $_POST)) {
         //create custom table in the database
-        remove_all_sh_data($table_name);
-        drop_sh_rx_post_table($table_name);
-        create_sh_rx_post_table($table_name);
+        remove_all_hl_data($table_name);
+        drop_hl_rx_post_table($table_name);
+        create_hl_rx_post_table($table_name);
 
-        $decoded = get_sh_listings_xml();
+        $decoded = get_hl_listings_xml();
 
-        $sh_count = 0;
-        foreach ($decoded as $shlisting) {
+        foreach ($decoded as $listing) {
 
-            // $sh_count += 1;
 
-            // if ($sh_count > 10) {
-            //     break;
-            // }
-            sh_add_single_listing($shlisting);
+            $listing_country = $listing->geo->country->attributes()->iso_country;
+            if ($listing_country != "FRA") {
+                continue;
+            }
+            global $wpdb;
+            $table_name = $wpdb->prefix . "hlsync_custom";
+            hl_add_single_listing($listing, $table_name);
         }
 
 ?>
@@ -620,10 +693,10 @@ function shsync_script()
     <?php    }
 
 
-    if (array_key_exists('sh-get-month-clicks', $_POST)) {
+    if (array_key_exists('hl-get-month-clicks', $_POST)) {
 
         global $wpdb;
-        $table_name = $wpdb->prefix . "shsync_custom";
+        $table_name = $wpdb->prefix . "hlsync_custom";
         $column = 'clicks';
         $clicks_array = count_clicks_dashboard($table_name, $column);
     }
@@ -632,48 +705,62 @@ function shsync_script()
     ?>
     <div class="wrap">
 
-        <h2> Sync Spotahome Listings</h2>
+        <h2> Sync Homelike Listings</h2>
 
         <form action="" method="POST">
-            <label for="spotahome-api-endpoint">API</label>
-            <input type="text" name="spotahome-api-endpoint" id="spotahome-api-endpoint" value="https://feeds.datafeedwatch.com/35132/079cebbf72a8e9372a5d4e39bb53907080476f68.xml" disabled style="width: 40rem;">
+            <!-- <label for="spotahome-api-endpoint">API</label>
+            <input type="text" name="spotahome-api-endpoint" id="spotahome-api-endpoint" value="https://feeds.datafeedwatch.com/35132/079cebbf72a8e9372a5d4e39bb53907080476f68.xml" disabled style="width: 40rem;"> -->
             <br>
             <br>
-            <input type="submit" name="sh-intial-sync" class="button button-primary" value="Initial Sync">
-            <input type="submit" name="sh-available-dates-sync" class="button button-primary" value="Sync Available Date">
-            <input type="submit" name="sh-partial-sync" class="button button-primary" value="Partial Sync">
+
+            <!-- ====================
+                initial sync
+            ==================== -->
+
+            <input type="submit" name="hl-intial-sync" class="button button-primary" value="Initial Sync">
+
+            <!-- ====================
+                available dates sync
+            ==================== -->
+
+            <input type="submit" name="hl-available-dates-sync" class="button button-primary" value="Sync Available Dates">
+
+            <!-- ====================
+                partial sync
+            ==================== -->
+            <input type="submit" name="hl-partial-sync" class="button button-primary" value="Partial Sync">
             <br>
             <br>
 
             <!-- get PA ID -->
-            <label for="get-spotahome-id" style="font-size: 1rem;margin-top:5rem;margin-bottom:1.5rem;">Get the SH
+            <label for="get-homelike-id" style="font-size: 1rem;margin-top:5rem;margin-bottom:1.5rem;">Get the SH
                 ID</label>
             <br>
             <br>
 
-            <input type="number" name="sh-id" placeholder="Type Spotahome ID">
+            <input type="number" name="hl-id" placeholder="Type Homelike ID">
 
 
-            <input type="submit" name="get-sh-id" class="button button-primary" value="Get SH ID" style="margin-left: 1rem;">
+            <input type="submit" name="get-hl-id" class="button button-primary" value="Get HL ID" style="margin-left: 1rem;">
 
 
-            <label name="show-sh-id" style="margin-left:1rem;"><?php echo $search_sh_id ?></label>
+            <label name="show-hl-id" style="margin-left:1rem;"><?php echo $search_ex_id ?></label>
 
             <pre>
-<?php if ($sh_listing_details_show != '') {
-        print_r($sh_listing_details_show);
+<?php if ($hl_listing_details_show != '') {
+        print_r($hl_listing_details_show);
     } ?>
         </pre>
 
 
 
             <!-- Clicks Details -->
-            <label for="show-sh-clicks" style="font-size: 1rem;margin-top:5rem;margin-bottom:1.5rem;">Clicks Details</label>
+            <label for="show-hl-clicks" style="font-size: 1rem;margin-top:5rem;margin-bottom:1.5rem;">Clicks Details</label>
             <br>
             <br>
 
-            <input type="submit" name="sh-get-month-clicks" class="button button-primary" value="Show Clicks by Month">
-            <label name="show-sh-id" style="margin-left:1rem;"><?php echo $search_sh_id ?></label>
+            <input type="submit" name="hl-get-month-clicks" class="button button-primary" value="Show Clicks by Month">
+            <label name="show-hl-id" style="margin-left:1rem;"><?php echo $search_ex_id ?></label>
 
             <br>
             <br>
