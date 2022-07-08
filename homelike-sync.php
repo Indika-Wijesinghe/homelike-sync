@@ -733,7 +733,7 @@ function hlsync_script()
             <br>
 
             <!-- get PA ID -->
-            <label for="get-homelike-id" style="font-size: 1rem;margin-top:5rem;margin-bottom:1.5rem;">Get the SH
+            <label for="get-homelike-id" style="font-size: 1rem;margin-top:5rem;margin-bottom:1.5rem;">Get the HL
                 ID</label>
             <br>
             <br>
