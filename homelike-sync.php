@@ -717,7 +717,7 @@ function hlsync_script()
                 initial sync
             ==================== -->
 
-            <!-- <input type="submit" name="hl-intial-sync" class="button button-primary" value="Initial Sync"> -->
+            <input type="submit" name="hl-intial-sync" class="button button-primary" value="Initial Sync">
 
             <!-- ====================
                 available dates sync
